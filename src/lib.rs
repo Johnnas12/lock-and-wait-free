@@ -16,6 +16,25 @@ pub trait NormalizedLockFree {
     fn execute(&self, cases: &[Self::CasDescriptor], contention: &mut ContentionMeasure) -> Result<(), usize>;
     fn cleanup(&self);
 }
+pub struct Help;
+
+// A wait free queue
+pub struct HelpQueue;
+
+impl HelpQueue {
+    pub fn add(&self, help: Help) {
+
+    }
+
+    pub fn peak(&self) -> Option<&Help> {
+        None
+    }
+
+    pub fn try_remove_front(&self, completed: &Help) {
+
+    }
+
+}
 
 
 pub struct WaitFreeSimulator <LF: NormalizedLockFree> {
