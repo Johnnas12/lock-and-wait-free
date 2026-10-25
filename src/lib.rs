@@ -4,9 +4,17 @@ use std::{ops::Index, slice::SliceIndex, sync::atomic::{AtomicBool, AtomicUsize,
 
 pub struct ContentionMeasure (usize);
 
+const CONTENTION_THRESHOLD: usize = 2;
+const RETRY_THRESHOLD: usize = 2;
+
+
 impl ContentionMeasure {
     pub fn detected(&mut self) {
         self.0 += 1;
+    }
+    
+    pub fn use_slow_path(&self) -> bool {
+        self.0 > CONTENTION_THRESHOLD
     }
 }
 pub trait CasDescriptor {
@@ -29,7 +37,7 @@ pub trait NormalizedLockFree {
         performed: &Self::Cases,
         contention: &ContentionMeasure) -> Result<Self::Output, ()>;
 }
-pub struct Help{
+pub struct OperationRecord{
     completed: AtomicBool,
     at: AtomicUsize,
 
@@ -39,15 +47,15 @@ pub struct Help{
 pub struct HelpQueue;
 
 impl HelpQueue {
-    pub fn add(&self, help: *const Help) {
+    pub fn add(&self, help: *const OperationRecord) {
 
     }
 
-    pub fn peak(&self) -> Option<*const Help> {
+    pub fn peak(&self) -> Option<*const OperationRecord> {
         None
     }
 
-    pub fn try_remove_front(&self, completed: *const Help) {
+    pub fn try_remove_front(&self, completed: *const OperationRecord) {
 
     }
 
@@ -72,48 +80,53 @@ impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
         Ok(())
         
         }
-    fn help(&self) {
+    fn help_first(&self) {
         if let Some(help) = self.help.peak() {
             // help make progress
         }
 
     }
     pub fn run(&self, op: LF::Input) -> LF::Output {
-
-        let mut fast = true;
-        loop {
-            if fast {
-                let help = /* once in a while */ false;
-                if help {
-                    self.help();
-                } 
-            } else {
-                // help more
-            }
-            fast = false;
-
+        // Fast Path
+        for retry in 0.. {
+            let help = /* once in a while */ true;
+            if help {
+                self.help_first();
+            } 
             let mut contention = ContentionMeasure(0);
+
             let cases = self.algorithim.generator(&op, &mut contention);
+            if contention.use_slow_path() {
+                break;
+            }
             let result =  self.cas_execute(&cases, &mut contention);
+            if contention.use_slow_path() {
+                break;
+            }
             match self.algorithim.wrap_up(result, &cases, &mut contention){
                 Ok(outcome ) => break,
                 Err(()) => continue,
-            } // fast path is succeed
-            // if let Err(i) = result { 
-            //         // slow-path: ask for help
-            //         let help = Help{
-            //             completed: AtomicBool::new(false),
-            //             at: AtomicUsize::new(i)
-            //         } ;
-            //         self.help.add(&help);
+            } // fast path
 
-            //         while !help.completed.load(Ordering::SeqCst) {
-            //             self.help();
-            //         }
-            //     }
+            if contention.use_slow_path() {
+                break;
+            }
+
+            if retry > RETRY_THRESHOLD {
+                // slow path
+            }
+
+            let i = 0;
+            let or = OperationRecord {
+                completed: AtomicBool::new(false),
+                at: AtomicUsize::new(i)
+            };
+            self.help.add(&or);
+            while !or.completed.load(Ordering::SeqCst) {
+                self.help_first();
+            }
         }
         
-
         todo!()
     }
     
