@@ -10,11 +10,11 @@ impl ContentionMeasure {
     }
 }
 pub trait NormalizedLockFree {
+    type Input;
     type Output;
-    type Operation;
     type CasDescriptor;
 
-    fn prepare(&self, op: &Self::Operation) -> [Self::CasDescriptor; 1];
+    fn prepare(&self, op: &Self::Input) -> [Self::CasDescriptor; 1];
     fn execute(&self, cases: &[Self::CasDescriptor], contention: &mut ContentionMeasure) -> Result<(), usize>;
     fn cleanup(&self);
 }
@@ -56,7 +56,7 @@ impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
         }
 
     }
-    pub fn run(&self, op: LF::Operation) -> LF::Output {
+    pub fn run(&self, op: LF::Input) -> LF::Output {
         if false {
             self.help();
         }
