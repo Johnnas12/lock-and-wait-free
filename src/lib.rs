@@ -1,6 +1,6 @@
 // In lock-and-wait-free
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::{ops::Index, slice::SliceIndex, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
 pub struct ContentionMeasure (usize);
 
@@ -9,14 +9,18 @@ impl ContentionMeasure {
         self.0 += 1;
     }
 }
+pub struct CasDescriptor;
+
+pub trait CasDescriptors: Index<usize, Output = CasDescriptor> {
+    fn len(&self) -> usize;
+}
 pub trait NormalizedLockFree {
     type Input;
     type Output;
-    type CasDescriptor;
+    type Descriptor: CasDescriptors;
 
-    fn prepare(&self, op: &Self::Input) -> [Self::CasDescriptor; 1];
-    fn execute(&self, cases: &[Self::CasDescriptor], contention: &mut ContentionMeasure) -> Result<(), usize>;
-    fn cleanup(&self);
+    fn generator(&self, op: &Self::Input) -> Self::Descriptor;
+    fn wrap_up(&self, performed: Self::Descriptor);
 }
 pub struct Help{
     completed: AtomicBool,
@@ -50,6 +54,9 @@ pub struct WaitFreeSimulator <LF: NormalizedLockFree> {
 }
 
 impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
+    fn cas_executor(&self, descriptors: LF::Descriptor) -> Result<(), usize> {
+        todo!()
+    }
     fn help(&self) {
         if let Some(help) = self.help.peak() {
             // help make progress
@@ -85,20 +92,3 @@ impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
     }
     
 }
-
-// // in consuming create(wait-free-linked-list crate)
-// struct WaitFreeLinkedList<T> {
-//     simulator: WaitFreeSimulator<LockFreeLinkedList<T>>
-// }
-
-// struct LockFreeLinkedList<T> {
-//     t: T
-// }
-
-// impl<T> NormalizedLockFree for LockFreeLinkedList<T> {}
-
-// impl<T> WaitFreeLinkedList<T> {
-//     pub fn push_front(&self, t:T) {
-//         self.simulator.run(Insert(t));
-//     }
-// }
