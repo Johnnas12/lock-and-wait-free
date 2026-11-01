@@ -1,18 +1,21 @@
 // In lock-and-wait-free
 
-use std::{ops::Index, slice::SliceIndex, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
+use std::{
+    ops::Index,
+    slice::SliceIndex,
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering},
+};
 
-pub struct ContentionMeasure (usize);
+pub struct ContentionMeasure(usize);
 
 const CONTENTION_THRESHOLD: usize = 2;
 const RETRY_THRESHOLD: usize = 2;
-
 
 impl ContentionMeasure {
     pub fn detected(&mut self) {
         self.0 += 1;
     }
-    
+
     pub fn use_slow_path(&self) -> bool {
         self.0 > CONTENTION_THRESHOLD
     }
@@ -21,8 +24,9 @@ pub trait CasDescriptor {
     fn execute(&self) -> Result<(), ()>;
 }
 
-pub trait CasDescriptors<D>: Index::<usize, Output = D> where
-   D: CasDescriptor,
+pub trait CasDescriptors<D>: Index<usize, Output = D>
+where
+    D: CasDescriptor,
 {
     fn len(&self) -> usize;
 }
@@ -32,44 +36,48 @@ pub trait NormalizedLockFree {
     type Cas: CasDescriptor;
     type Cases: CasDescriptors<Self::Cas>;
     fn generator(&self, op: &Self::Input, contention: &ContentionMeasure) -> Self::Cases;
-    fn wrap_up(&self, 
-        executed: Result<(), usize>, 
+    fn wrap_up(
+        &self,
+        executed: Result<(), usize>,
         performed: &Self::Cases,
-        contention: &ContentionMeasure) -> Result<Self::Output, ()>;
+        contention: &ContentionMeasure,
+    ) -> Result<Self::Output, ()>;
 }
-pub struct OperationRecord{
-    completed: AtomicBool,
-    at: AtomicUsize,
-
+pub struct OperationRecordBox<O> {
+    val: AtomicPtr<OperationRecord>,
+}
+pub struct OperationRecord<O> {
+    ownerTid: std::thread::ThreadId
+    input: O
 }
 
 // A wait free queue
-pub struct HelpQueue;
+pub struct HelpQueue<O>;
 
-impl HelpQueue {
-    pub fn add(&self, help: *const OperationRecord) {
+impl<O> HelpQueue<O> {
+    // Implement based on Appendix A
+    pub fn enqueue(&self, help: *const OperationRecordBox<O>) {}
 
-    }
-
-    pub fn peak(&self) -> Option<*const OperationRecord> {
+    pub fn peak(&self) -> Option<*const OperationRecordBox<O>> {
         None
     }
 
-    pub fn try_remove_front(&self, completed: *const OperationRecord) {
-
+    pub fn try_remove_front(&self, completed: *const OperationRecordBox<O>) -> Result<(), ()> {
+        Err(())
     }
-
 }
 
-
-pub struct WaitFreeSimulator <LF: NormalizedLockFree> {
+pub struct WaitFreeSimulator<LF: NormalizedLockFree> {
     algorithim: LF,
-    help: HelpQueue
-
+    help: HelpQueue<LF::Input>,
 }
 
-impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
-    fn cas_execute(&self, descriptors: &LF::Cases, contention: &mut ContentionMeasure) -> Result<(), usize> {
+impl<LF: NormalizedLockFree> WaitFreeSimulator<LF> {
+    fn cas_execute(
+        &self,
+        descriptors: &LF::Cases,
+        contention: &mut ContentionMeasure,
+    ) -> Result<(), usize> {
         let len = descriptors.len();
         for i in 0..len {
             if descriptors[i].execute().is_err() {
@@ -78,13 +86,11 @@ impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
             }
         }
         Ok(())
-        
-        }
+    }
     fn help_first(&self) {
         if let Some(help) = self.help.peak() {
             // help make progress
         }
-
     }
     pub fn run(&self, op: LF::Input) -> LF::Output {
         // Fast Path
@@ -92,19 +98,19 @@ impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
             let help = /* once in a while */ true;
             if help {
                 self.help_first();
-            } 
+            }
             let mut contention = ContentionMeasure(0);
 
             let cases = self.algorithim.generator(&op, &mut contention);
             if contention.use_slow_path() {
                 break;
             }
-            let result =  self.cas_execute(&cases, &mut contention);
+            let result = self.cas_execute(&cases, &mut contention);
             if contention.use_slow_path() {
                 break;
             }
-            match self.algorithim.wrap_up(result, &cases, &mut contention){
-                Ok(outcome ) => break,
+            match self.algorithim.wrap_up(result, &cases, &mut contention) {
+                Ok(outcome) => break,
                 Err(()) => continue,
             } // fast path
 
@@ -117,17 +123,19 @@ impl <LF: NormalizedLockFree>  WaitFreeSimulator<LF>  {
             }
 
             let i = 0;
-            let or = OperationRecord {
-                completed: AtomicBool::new(false),
-                at: AtomicUsize::new(i)
+            let orb = OperationRecordBox {
+                val: AtomicPtr::new(Box::into_raw(Box::new(OperationRecord<O> {
+                    completed: false,
+                    at: i,
+                }))),
             };
-            self.help.add(&or);
-            while !or.completed.load(Ordering::SeqCst) {
+
+            self.help.enqueue(&orb);
+            while !unsafe { &*orb.val.load(Ordering::SeqCst) }.completed {
                 self.help_first();
             }
         }
-        
+
         todo!()
     }
-    
 }
